@@ -1,12 +1,16 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/acuas/sin/db"
 	php "github.com/deuill/go-php"
@@ -16,11 +20,15 @@ import (
 
 const programURL = "localhost:8081"
 
+var adminHash string
+var adminPassword string
+
 type app struct {
 	db *db.PasteDatabase
 }
 
 func main() {
+	random()
 	sin := &app{db.CreatePasteDatabase("sin")}
 	err := http.ListenAndServe("0.0.0.0:8081", handler(sin))
 	if err != nil {
@@ -36,6 +44,9 @@ func handler(app *app) http.Handler {
 	engine, _ = php.New()
 
 	r.HandleFunc("/", app.home).
+		Methods("GET")
+
+	r.HandleFunc("/admin", app.admin).
 		Methods("GET")
 
 	r.HandleFunc("/getImage", app.getImage).
@@ -57,6 +68,90 @@ func handler(app *app) http.Handler {
 	r.HandleFunc("/{path}", app.index).
 		Methods("GET")
 	return r
+}
+
+func (sin *app) admin(w http.ResponseWriter, req *http.Request) {
+	auth := req.Header.Get("Authorization")
+	errString := fmt.Sprintf(`Basic realm="Only username admin can access this page, with the correct password 
+	(which has the MD5 hash %s). All passwords consist of 5 lowercase letters, followed by 4 digits."`, adminHash)
+
+	if auth == "" {
+		w.Header().Set("WWW-Authenticate", errString)
+		w.WriteHeader(http.StatusUnauthorized)
+	} else {
+		parts := strings.Split(strings.Trim(auth, " "), " ")
+
+		if len(parts) != 2 {
+			w.Header().Set("WWW-Authenticate", errString)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		method := parts[0]
+		if method != "Basic" {
+			w.Header().Set("WWW-Authenticate", errString)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		bs, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			w.Header().Set("WWW-Authenticate", errString)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		authParts := strings.Split(string(bs), ":")
+		if len(authParts) != 2 {
+			w.Header().Set("WWW-Authenticate", errString)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		username := authParts[0]
+		if username != "admin" {
+			w.Header().Set("WWW-Authenticate", errString)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		} else {
+			pass := authParts[1]
+
+			if pass == adminPassword {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Headers", "*")
+				w.Header().Set("Content-Type", "text/plain")
+
+				w.Write([]byte("Congrats! You pwned us!"))
+			} else {
+				w.Header().Set("WWW-Authenticate", errString)
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		}
+	}
+}
+
+func random() {
+	rand.Seed(time.Now().UTC().UnixNano())
+	letters := "abcdefghijklmnopqrstuvwxyz"
+	numbers := "0123456789"
+
+	adminPassword = fmt.Sprintf("%c%c%c%c%c%c%c%c%c",
+		letters[rand.Intn(len(letters))],
+		letters[rand.Intn(len(letters))],
+		letters[rand.Intn(len(letters))],
+		letters[rand.Intn(len(letters))],
+		letters[rand.Intn(len(letters))],
+		numbers[rand.Intn(len(numbers))],
+		numbers[rand.Intn(len(numbers))],
+		numbers[rand.Intn(len(numbers))],
+		numbers[rand.Intn(len(numbers))])
+
+	adminHash = fmt.Sprintf("%x", md5.Sum([]byte(adminPassword)))
 }
 
 func (sin *app) getImage(w http.ResponseWriter, req *http.Request) {
@@ -176,8 +271,6 @@ func clientIPAddrAllowed(s string) bool {
 }
 
 func (sin *app) home(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Request from %s\n", clientIPAddr(r))
-
 	w.Header().Set("Content-Type", "text/html")
 
 	http.ServeFile(w, r, "./index.html")
@@ -228,12 +321,18 @@ EXAMPLES
 `, programURL)
 
 func (sin *app) robots(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, RobotsTxt)
+	if clientIPAddr(r) != "10.10.10.1" {
+		w.Header().Add("X-Authorize", "Users can only come from 10.10.10.0/24")
+		w.WriteHeader(500)
+		fmt.Fprintf(w, "500 internal server error")
+	} else {
+		fmt.Fprintf(w, RobotsTxt)
+	}
 }
 
 var RobotsTxt = `
 User-agent: *
-Disallow: /h1dd3n
+Disallow: /h1dd3n,/admin
 `
 
 func (sin *app) h1dd3n(w http.ResponseWriter, r *http.Request) {
