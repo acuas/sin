@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<script>
+    function sanitizeString(str){
+        str = str.replace(/[^a-z0-9?!áéíóúñü_-\s\.,]/gim,"");
+        return str.trim();
+    }
+
+    function submitPaste() {
+        if (!document.getElementById("notebox").value) {
+            alert("Paste connot be empty!");
+        } else {
+            fetch('http://localhost:8081/submit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain; charset=UTF-8',
+                },
+                body: sanitizeString(document.getElementById("notebox").value),
+            })
+            .then(response => {
+                if (response.status != 200) {
+                    throw new Error("Non 200 status code!")
+                } else {
+                    return response.text()
+                }
+            })
+            .then(data => {
+                if (!data) {
+                    throw new Error("Response does not have a body!")
+                } else {
+                    location = "http://localhost:8081/paste?id=" + data
+                }
+            })
+            .catch(function(err) {
+                alert("Something went wrong :( Try again!")
+                document.getElementById("notebox").value = ""
+                console.log('Fetch error', err);
+            });
+        }
+}
+</script>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>PasteIt!</title>
+
+        <style>
+            h1 {
+                text-align: center;
+            }
+
+            #notebox {
+                display: block;
+                margin-left: auto;
+                margin-right: auto;
+                resize: none;
+            }
+
+            #submitbutton {
+                display: block;
+                margin-top: 2em;
+                margin-left: auto;
+                margin-right: auto;
+                resize: none;
+            }
+
+            #joke {
+                display: block;
+                margin-top: 2em;
+                margin-left: auto;
+                margin-right: auto;
+            }
+        </style>
+
+    </head>
+
+    <body>
+
+        <h1>PasteIt!</h1>
+        <textarea id="notebox" rows="10" cols="50"></textarea>
+        <button id="submitbutton" type="button" onclick="submitPaste()">Submit your paste!</button>
+        <img id="joke" src="http://localhost:8081/getImage?filename=joke.png">
+
+    </body>
+</html>

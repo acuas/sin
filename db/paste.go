@@ -19,12 +19,12 @@ type PasteDatabase struct {
 func CreatePasteDatabase(name string) *PasteDatabase {
 	pasteDB := &PasteDatabase{}
 
-	db, err := sql.Open("sqlite3", name)
+	db, err := sql.Open("mysql", fmt.Sprintf("root:example@tcp(127.0.0.1:3306)/%s", name))
 	if err != nil {
 		log.Fatalf("opening db: %s\n", err)
 	}
 
-	db.Exec(`
+	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS Paste (
 			id INTEGER NOT NULL,
 			data BLOB NOT NULL, PRIMARY KEY(id))
@@ -39,19 +39,17 @@ func CreatePasteDatabase(name string) *PasteDatabase {
 // RetrievePaste queries the database for the paste and returns it.
 func (pasteDB *PasteDatabase) RetrievePaste(id string) (*Paste, error) {
 	paste := &Paste{ID: id}
-
-	number, err := idToInt(id)
-	if err != nil {
-		return paste, err
+	if id == "favicon.ico" {
+		return paste, nil
 	}
-
-	stmt, err := pasteDB.db.Prepare("SELECT data FROM Paste WHERE id = $1")
-	if err != nil {
-		return paste, err
+	query := "SELECT data FROM Paste WHERE id=" + id
+	rows, err := pasteDB.db.Query(query)
+	response := []byte{}
+	for rows.Next() {
+		rows.Scan(&response)
+		paste.Data = append(paste.Data, response...)
 	}
-
-	err = stmt.QueryRow(number).Scan(&paste.Data)
-
+	rows.Close()
 	return paste, err
 }
 
@@ -59,8 +57,7 @@ func (pasteDB *PasteDatabase) RetrievePaste(id string) (*Paste, error) {
 func (pasteDB *PasteDatabase) StorePaste(data []byte) (*Paste, error) {
 	n := pasteDB.nextID()
 	paste := &Paste{ID: intToID(n), Data: data}
-
-	stmt, err := pasteDB.db.Prepare("INSERT INTO Paste (id, data) VALUES ($1, $2)")
+	stmt, err := pasteDB.db.Prepare("INSERT INTO Paste (id, data) VALUES (?, ?)")
 	if err != nil {
 		return paste, fmt.Errorf("StorePaste preparing insert statement: %s", err)
 	}
@@ -74,15 +71,6 @@ func (pasteDB *PasteDatabase) StorePaste(data []byte) (*Paste, error) {
 
 func (pasteDB *PasteDatabase) nextID() uint64 {
 	var i uint64
-
-	// Reuse IDs
-	// rows, _ := pasteDB.db.Query("SELECT id FROM DeletedId ORDER BY ASC")
-	// if rows.Next() {
-	// 	db.Exec()
-	// 	rows.Scan(&i)
-	// 	return intToID()
-	// }
-
 	rows, _ := pasteDB.db.Query("SELECT id FROM Paste ORDER BY id DESC")
 	if rows.Next() {
 		rows.Scan(&i)

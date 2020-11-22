@@ -1,0 +1,17 @@
+version: '3.7'
+
+services: 
+  app:
+    build: .
+    image: mysql:5.6
+    restart: always
+    command: --default-authentication-plugin=mysql_native_password --secure-file-priv=/
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: sin
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: password
+    ports:
+      - 3306:3306
+      - 8081:8081
